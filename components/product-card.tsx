@@ -22,15 +22,14 @@ export default function ProductCard({ product }: { product: Product }) {
       storeName: store?.name || "",
     })
 
-    // Simulate loading state
     setTimeout(() => {
       setIsAdding(false)
     }, 500)
   }
 
   return (
-    <div className="group bg-white rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border border-slate-100 hover:border-blue-200">
-      <div className="relative h-48 overflow-hidden">
+    <div className="group bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-200 hover:border-gray-300">
+      <div className="relative h-40 overflow-hidden">
         <Image
           src={product.image || "/placeholder.svg"}
           alt={product.name}
@@ -41,12 +40,12 @@ export default function ProductCard({ product }: { product: Product }) {
           <Badge className="bg-red-500 text-white text-xs">-15%</Badge>
         </div>
         <div className="absolute top-3 right-3">
-          <Button variant="ghost" size="icon" className="bg-white/80 hover:bg-white w-8 h-8">
-            <Heart className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="bg-white/90 hover:bg-white w-7 h-7">
+            <Heart className="h-3 w-3" />
           </Button>
         </div>
-        <div className="absolute bottom-3 left-3 right-3">
-          <div className="flex items-center gap-1 text-xs text-white bg-black/50 rounded-full px-2 py-1 w-fit">
+        <div className="absolute bottom-3 left-3">
+          <div className="flex items-center gap-1 text-xs text-white bg-black/60 rounded px-2 py-1">
             <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
             <span>4.5</span>
           </div>
@@ -54,24 +53,24 @@ export default function ProductCard({ product }: { product: Product }) {
       </div>
 
       <div className="p-4">
-        <h3 className="font-semibold text-slate-900 mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">
+        <h3 className="font-medium text-gray-900 mb-2 line-clamp-2 group-hover:text-yellow-600 transition-colors">
           {product.name}
         </h3>
 
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-lg font-bold text-slate-900">₦{product.price.toLocaleString()}</div>
-            <div className="text-sm text-slate-500 line-through">
+            <div className="text-lg font-bold text-gray-900">₦{product.price.toLocaleString()}</div>
+            <div className="text-sm text-gray-500 line-through">
               ₦{Math.round(product.price * 1.15).toLocaleString()}
             </div>
           </div>
-          <div className="text-xs text-slate-500">In stock</div>
+          <div className="text-xs text-green-600 font-medium">In stock</div>
         </div>
 
         <Button
           onClick={handleAddToCart}
           disabled={isAdding}
-          className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-semibold py-2.5 rounded-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+          className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 rounded-lg shadow-sm hover:shadow transition-all disabled:opacity-50"
         >
           {isAdding ? (
             <div className="flex items-center gap-2">
