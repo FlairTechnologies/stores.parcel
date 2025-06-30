@@ -12,7 +12,7 @@ import { useState } from "react"
 export default function ProductCard({ product }: { product: Product }) {
   const { addToCart } = useCart()
   const [isAdding, setIsAdding] = useState(false)
-  const store = stores.find((s) => s.id === product.storeId)
+  const store = stores.find((s) => s._id === product.storeId)
 
   const handleAddToCart = async () => {
     setIsAdding(true)
