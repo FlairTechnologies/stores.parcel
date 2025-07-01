@@ -9,9 +9,13 @@ import { getToken } from "@/storage/tokenStorage"
 import { stores } from "@/lib/data"
 import { useState } from "react"
 import axios from "axios"
+import { useToast } from "@/components/ui/use-toast"
+
 
 export default function ProductCard({ product }: { product: Product }) {
+
   const [isAdding, setIsAdding] = useState(false)
+  const { toast } = useToast() // <-- use your app's toast
   const store = stores.find((s) => s._id === product.storeId)
 
   const handleAddToCart = async () => {
@@ -32,16 +36,25 @@ export default function ProductCard({ product }: { product: Product }) {
         }
       )
 
-      console.log("Cart updated:", response.data)
-      // Optional: trigger global cart update or show toast
+      // Use your app's toast
+      toast({
+        title: "Added to Cart",
+        description: `${product.name} has been added to your cart.`,
+        variant: "default",
+      })
 
     } catch (error: any) {
       console.error("Add to cart error:", error)
-      alert("Failed to add item to cart. Please try again.")
+      toast({
+        title: "Error",
+        description: "Failed to add item to cart. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsAdding(false)
     }
   }
+
 
   return (
     <div className="group bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-200 hover:border-gray-300">

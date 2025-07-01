@@ -13,8 +13,17 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import Breadcrumb from "@/components/breadcrumb"
-import { Minus, Plus, Trash2, ShoppingBag, CreditCard, Truck, Shield, ArrowRight } from "lucide-react"
+import { Minus, Plus, Trash2, ShoppingBag, CreditCard, Truck, Shield, ArrowRight, User, Phone, MapPin, X, CheckCircle, AlertCircle } from "lucide-react"
 import axios from "axios"
 import { useToast } from "@/components/ui/use-toast"
 import { getToken } from "@/storage/tokenStorage"
@@ -46,13 +55,38 @@ type CartItem = {
   inStock: boolean
 }
 
+type DeliveryInfo = {
+  name: string
+  phone: string
+  address: string
+}
+
+type PaymentModalState = {
+  isOpen: boolean
+  authorizationUrl: string
+  reference: string
+  accessCode: string
+}
+
 export default function CartPage() {
   const router = useRouter()
   const { toast } = useToast()
   const [cart, setCart] = useState<CartItem[]>([])
-  const [paymentMethod, setPaymentMethod] = useState("card")
+  const [paymentMethod, setPaymentMethod] = useState("paystack")
   const [loading, setLoading] = useState(false)
   const [isClient, setIsClient] = useState(false)
+  const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo>({
+    name: "",
+    phone: "",
+    address: ""
+  })
+  const [paymentModal, setPaymentModal] = useState<PaymentModalState>({
+    isOpen: false,
+    authorizationUrl: "",
+    reference: "",
+    accessCode: ""
+  })
+  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'verifying' | 'success' | 'failed'>('idle')
 
   // Ensure component only runs on client side
   useEffect(() => {
@@ -67,7 +101,7 @@ export default function CartPage() {
       price: parseInt(item.productId.price),
       quantity: item.quantity,
       image: item.productId.imgs?.[0] || "/placeholder.svg",
-      storeName: item.productId.store, // You might want to fetch store name separately
+      storeName: item.productId.store,
       inStock: item.productId.inStock
     }))
   }
@@ -79,10 +113,10 @@ export default function CartPage() {
         headers: { Authorization: `Bearer ${token}` }
       })
       console.log("Cart fetched:", response.data)
-      
-      // Transform the API response to match frontend structure
+
       const apiCartItems = response.data.data.cart.items || []
       const transformedItems = transformCartItems(apiCartItems)
+
       setCart(transformedItems)
     } catch (err: any) {
       console.error("Cart fetch error:", err)
@@ -113,7 +147,6 @@ export default function CartPage() {
       const currentQuantity = currentItem.quantity
 
       if (newQuantity > currentQuantity) {
-        // Increase quantity
         const increaseBy = newQuantity - currentQuantity
         for (let i = 0; i < increaseBy; i++) {
           await axios.post(
@@ -123,7 +156,6 @@ export default function CartPage() {
           )
         }
       } else {
-        // Decrease quantity
         const decreaseBy = currentQuantity - newQuantity
         for (let i = 0; i < decreaseBy; i++) {
           await axios.post(
@@ -163,34 +195,128 @@ export default function CartPage() {
     }
   }
 
+  const verifyPayment = async (reference: string) => {
+    try {
+      setPaymentStatus('verifying')
+      const token = getToken()
+
+      const response = await axios.get(`/api/products/verify-payment?reference=${reference}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      console.log(response.data)
+
+      if (response.data.data === 'success') {
+        setPaymentStatus('success')
+
+        // Clear cart after successful payment
+        await axios.post(
+          "/api/products/clear-cart",
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+
+        toast({ title: "Payment Successful!", description: "Your order has been placed successfully.", variant: "default" })
+
+        // Redirect after a short delay
+
+        setPaymentModal(prev => ({ ...prev, isOpen: false }))
+        router.push("/order-success")
+
+      } else {
+        setPaymentStatus('failed')
+        toast({ title: "Payment Failed", description: "Payment verification failed. Please try again.", variant: "destructive" })
+      }
+    } catch (err: any) {
+      console.error("Payment verification error:", err)
+      setPaymentStatus('failed')
+      toast({ title: "Verification Error", description: "Failed to verify payment. Please contact support.", variant: "destructive" })
+    }
+  }
+
   const handlePlaceOrder = async () => {
     if (cartItems.length === 0) {
       toast({ title: "Error", description: "Your cart is empty", variant: "destructive" })
       return
     }
 
+    // Validate delivery information
+    if (!deliveryInfo.name.trim()) {
+      toast({ title: "Error", description: "Please enter receiver's name", variant: "destructive" })
+      return
+    }
+    if (!deliveryInfo.phone.trim()) {
+      toast({ title: "Error", description: "Please enter receiver's phone number", variant: "destructive" })
+      return
+    }
+    if (!deliveryInfo.address.trim()) {
+      toast({ title: "Error", description: "Please enter delivery address", variant: "destructive" })
+      return
+    }
+
     try {
       setLoading(true)
       const token = getToken()
-      if (!token) {
-        toast({ title: "Error", description: "Please log in", variant: "destructive" })
-        return
+
+      // Create order with delivery information
+      const orderResponse = await axios.post(
+        "/api/products/create-order",
+        {
+          receiver: {
+            name: deliveryInfo.name,
+            phone: deliveryInfo.phone,
+            address: deliveryInfo.address
+          }
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      // console.log("Order created:", orderResponse.data)
+      const orderId = orderResponse.data.data.orderId
+      localStorage.setItem("orderId", orderId)
+
+      if (!orderId) {
+        throw new Error("Order ID not received from create-order response")
       }
 
-      await axios.post(
-        "/api/products/checkout",
-        { paymentMethod },
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+      if (paymentMethod === "paystack") {
+        // Checkout with Paystack
+        const checkoutResponse = await axios.post(
+          "/api/products/checkout",
+          {
+            orderId: orderId,
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
 
-      await axios.post(
-        "/api/products/clear-cart",
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+        const { authorization_url, access_code, reference } = checkoutResponse.data.data
 
-      toast({ title: "Success", description: "Order placed successfully!", variant: "default" })
-      router.push("/order-success")
+        // Open payment modal with Paystack checkout
+        setPaymentModal({
+          isOpen: true,
+          authorizationUrl: authorization_url,
+          reference: reference,
+          accessCode: access_code
+        })
+        setPaymentStatus('idle')
+      } else {
+        // Bank transfer - existing logic
+        await axios.post(
+          "/api/products/checkout",
+          {
+            orderId: orderId,
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+
+        await axios.post(
+          "/api/products/clear-cart",
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+
+        toast({ title: "Success", description: "Order placed successfully!", variant: "default" })
+        router.push("/order-success")
+      }
     } catch (err: any) {
       console.error("Checkout error:", err)
       const errorMessage = err.response?.data?.message || "Checkout failed. Please try again"
@@ -200,13 +326,19 @@ export default function CartPage() {
     }
   }
 
+  const closePaymentModal = () => {
+    setPaymentModal(prev => ({ ...prev, isOpen: false }))
+    setPaymentStatus('idle')
+  }
+
   // Don't render anything on server side to avoid hydration issues
   if (!isClient) {
     return null
   }
 
-  // Ensure cart is always an array before using reduce
   const cartItems = Array.isArray(cart) ? cart : []
+  // localStorage.setItem("cartCount", cartItems.length.toString())
+
   const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const deliveryFee = subtotal >= 5000 ? 0 : 500
   const total = subtotal + deliveryFee
@@ -263,20 +395,16 @@ export default function CartPage() {
 
                   <div className="flex-grow">
                     <h3 className="font-medium text-gray-900 mb-1">{item.name}</h3>
-                    {/* {item.storeName && (
-                      <p className="text-gray-600 text-sm mb-2">{item.storeName}</p>
-                    )} */}
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-lg">
                         ₦{item.price.toLocaleString()}
                       </span>
-                      <Badge 
-                        variant="secondary" 
-                        className={`text-xs ${
-                          item.inStock 
-                            ? "bg-green-100 text-green-700" 
-                            : "bg-red-100 text-red-700"
-                        }`}
+                      <Badge
+                        variant="secondary"
+                        className={`text-xs ${item.inStock
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                          }`}
                       >
                         {item.inStock ? "In stock" : "Out of stock"}
                       </Badge>
@@ -350,27 +478,95 @@ export default function CartPage() {
             </div>
 
             <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Delivery Information</h3>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="receiver-name" className="text-gray-700 font-medium">
+                    <div className="flex items-center gap-2 mb-2">
+                      <User className="h-4 w-4" />
+                      Receiver's Name
+                    </div>
+                  </Label>
+                  <Input
+                    id="receiver-name"
+                    type="text"
+                    placeholder="Enter receiver's full name"
+                    value={deliveryInfo.name}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full border-gray-300"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="receiver-phone" className="text-gray-700 font-medium">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Phone className="h-4 w-4" />
+                      Phone Number
+                    </div>
+                  </Label>
+                  <Input
+                    id="receiver-phone"
+                    type="tel"
+                    placeholder="e.g., 0804638822"
+                    value={deliveryInfo.phone}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full border-gray-300"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="delivery-address" className="text-gray-700 font-medium">
+                    <div className="flex items-center gap-2 mb-2">
+                      <MapPin className="h-4 w-4" />
+                      Delivery Address
+                    </div>
+                  </Label>
+                  <Input
+                    id="delivery-address"
+                    type="text"
+                    placeholder="Enter full delivery address"
+                    value={deliveryInfo.address}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, address: e.target.value }))}
+                    className="w-full border-gray-300"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-3">Payment Method</label>
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger className="w-full border-gray-300">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select payment method" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="card">
+                  <SelectItem value="paystack">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Pay with Card (Paystack)
+                    </div>
+                  </SelectItem>
+                  {/* <SelectItem value="bank_transfer">
                     <div className="flex items-center gap-2">
                       <CreditCard className="h-4 w-4" />
                       Bank Transfer
                     </div>
-                  </SelectItem>
-                  {/* <SelectItem value="transfer">Bank Transfer</SelectItem>
-                  <SelectItem value="wallet">Digital Wallet</SelectItem> */}
+                  </SelectItem> */}
                 </SelectContent>
               </Select>
+              {paymentMethod === "bank_transfer" && (
+                <p className="text-sm text-gray-600 mt-2">
+                  You will receive bank details after placing your order
+                </p>
+              )}
             </div>
 
             <Button
               onClick={handlePlaceOrder}
-              disabled={loading || cartItems.length === 0}
+              disabled={loading || cartItems.length === 0 || !deliveryInfo.name.trim() || !deliveryInfo.phone.trim() || !deliveryInfo.address.trim()}
               className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-lg font-medium shadow-sm hover:shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center justify-center gap-2">
@@ -394,6 +590,101 @@ export default function CartPage() {
           </div>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      <Dialog open={paymentModal.isOpen} onOpenChange={closePaymentModal}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              Complete Payment
+            </DialogTitle>
+            <DialogDescription>
+              Complete your payment securely with Paystack
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {paymentStatus === 'idle' && (
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600">Total Amount:</span>
+                    <span className="font-semibold text-lg">₦{total.toLocaleString()}</span>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Reference: {paymentModal.reference}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <iframe
+                    src={paymentModal.authorizationUrl}
+                    className="w-full h-96 border border-gray-200 rounded-lg"
+                    title="Paystack Payment"
+                  />
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => verifyPayment(paymentModal.reference)}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      I've Completed Payment
+                    </Button>
+                    <Button
+                      onClick={closePaymentModal}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {paymentStatus === 'verifying' && (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto mb-4"></div>
+                <h3 className="text-lg font-semibold mb-2">Verifying Payment...</h3>
+                <p className="text-gray-600">Please wait while we confirm your payment.</p>
+              </div>
+            )}
+
+            {paymentStatus === 'success' && (
+              <div className="text-center py-8">
+                <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-green-700 mb-2">Payment Successful!</h3>
+                <p className="text-gray-600">Your order has been placed successfully.</p>
+                <p className="text-sm text-gray-500 mt-2">Redirecting to order confirmation...</p>
+              </div>
+            )}
+
+            {paymentStatus === 'failed' && (
+              <div className="text-center py-8">
+                <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-red-700 mb-2">Payment Failed</h3>
+                <p className="text-gray-600 mb-4">We couldn't verify your payment. Please try again.</p>
+                <div className="space-y-2">
+                  <Button
+                    onClick={() => verifyPayment(paymentModal.reference)}
+                    className="w-full bg-yellow-500 hover:bg-yellow-600"
+                  >
+                    Retry Verification
+                  </Button>
+                  <Button
+                    onClick={closePaymentModal}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
