@@ -5,26 +5,42 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Heart, Plus, Star } from "lucide-react"
 import type { Product } from "@/lib/types"
-import { useCart } from "@/lib/cart-context"
+import { getToken } from "@/storage/tokenStorage"
 import { stores } from "@/lib/data"
 import { useState } from "react"
+import axios from "axios"
 
 export default function ProductCard({ product }: { product: Product }) {
-  const { addToCart } = useCart()
   const [isAdding, setIsAdding] = useState(false)
   const store = stores.find((s) => s._id === product.storeId)
 
   const handleAddToCart = async () => {
-    setIsAdding(true)
-    addToCart({
-      ...product,
-      quantity: 1,
-      storeName: store?.name || "",
-    })
+    if (!product?.id) return
 
-    setTimeout(() => {
+    setIsAdding(true)
+
+    try {
+      const token = getToken()
+
+      const response = await axios.post(
+        `/api/products/${product.id}/add-to-cart`,
+        { quantity: 1 },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      )
+
+      console.log("Cart updated:", response.data)
+      // Optional: trigger global cart update or show toast
+
+    } catch (error: any) {
+      console.error("Add to cart error:", error)
+      alert("Failed to add item to cart. Please try again.")
+    } finally {
       setIsAdding(false)
-    }, 500)
+    }
   }
 
   return (
